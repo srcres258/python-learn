@@ -30,6 +30,9 @@ FIRST = True
 # 记录绘制过程中要处理多少种颜色。
 K = 32
 
+# 是否禁用绘制动画。
+DISABLE_ANIMATION = False
+
 
 def bezier(p1: float, p2: float, t: float) -> float:
     """
@@ -257,7 +260,9 @@ def transform(w_attr: str) -> None:
 def read_path_attr_d(w_attr: str) -> Generator[float, Any, None]:
     ulist = w_attr.split(' ')
     for i in ulist:
-        if i.isdigit() or i.isalpha():
+        if len(i) == 0:
+            continue
+        elif i.isdigit() or i.isalpha():
             yield float(i)
         elif i[0].isalpha():
             yield i[0]
@@ -279,9 +284,15 @@ def draw_svg(filename: str, w_color: str) -> None:
         if FIRST:
             tt.setup(height=height, width=width)
             tt.setworldcoordinates(-width / 2, 300, width / 2, -height + 300)
+            tt.mode("world")
             FIRST = False
-        tt.speed('fast')
-        tt.tracer(n=500, delay=10)
+        if DISABLE_ANIMATION:
+            tt.tracer(False)
+            tt.speed(0)
+            tt.delay(0)
+        else:
+            tt.speed("fast")
+            tt.tracer(n=100, delay=10)
         tt.pensize(1)
         tt.pu()
         tt.color(w_color)
@@ -341,26 +352,34 @@ def draw_bitmap(w_image: cv2.typing.MatLike) -> None:
     # convert to np.float32
     z = np.float32(z)
 
-    # define criteria, numer of clusters(K) and apply kmeans()
+    # define criteria, number of clusters(K) and apply kmeans()
     criteria = (cv2.TERM_CRITERIA_EPS, 10, 1.0)
+    print('begin kmeans')
     ret, label, center = cv2.kmeans(z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    print('end kmeans')
 
     # Now convert back into uint8, and make original image
     center = np.uint8(center)
     res = center[label.flatten()]
     res = res.reshape(w_image.shape)
-    no = 1
+    no = 0
+    if os.path.exists('./.tmp.bmp'):
+        os.remove('./.tmp.bmp')
+    if os.path.exists('./.tmp.svg'):
+        os.remove('./.tmp.svg')
     for i in center:
-        print('Drawing: %.2f%% [' % (
-                no / K * 100) + '#' * no + ' ' * (K - no) + ']')
+        print('Drawing: %.2f%% ' % (
+                no / K * 100) + f'({no}/{K}) [' + '#' * no + ' ' * (K - no) + ']')
         no += 1
         res2 = cv2.inRange(res, i, i)
         res2 = cv2.bitwise_not(res2)
         cv2.imwrite('.tmp.bmp', res2)
         os.system('potrace .tmp.bmp -s --flat -o .tmp.svg')
-        draw_svg('.tmp.svg', '#%02x%02x%02x' % (i[2], i[1], i[0]))
-    os.remove('.tmp.bmp')
-    os.remove('.tmp.svg')
+        try:
+            draw_svg('.tmp.svg', '#%02x%02x%02x' % (i[2], i[1], i[0]))
+        finally:
+            os.remove('.tmp.bmp')
+            os.remove('.tmp.svg')
     tt.hideturtle()
     print('\nFinished, close the window to exit.')
     tt.done()
@@ -380,7 +399,7 @@ def get_screen_size() -> Tuple[int, int]:
 
 
 def main() -> None:
-    global K
+    global K, DISABLE_ANIMATION
 
     parser = argparse.ArgumentParser(description='Convert an bitmap to SVG and use turtle libray to draw it.')
     parser.add_argument('filename', type=str,
@@ -388,8 +407,13 @@ def main() -> None:
     parser.add_argument('-c', '--color',
                         help='How many colors you want to draw.(If the number is too large that the program may be very slow.)',
                         type=int, default=32)
+    parser.add_argument('--no-anim',
+                        help='Set to 1 to disable drawing animation.',
+                        type=int, default=0)
     args = parser.parse_args()
     K = args.color
+    if hasattr(args, 'no_anim') and args.no_anim == 1:
+        DISABLE_ANIMATION = True
     if os.path.splitext(args.filename)[1].lower() not in ['.jpg', '.png', '.bmp']:
         print(__file__ + ': error: The file is not a bitmap file.')
         quit()
